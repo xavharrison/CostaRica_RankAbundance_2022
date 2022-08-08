@@ -1,0 +1,243 @@
+---
+title: "RankAbundancre_Puschendorf_2022"
+author: "Xav Harrison"
+date: '2022-08-08'
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# SECTION 1 SETUP  
+
+## 1.1 Libraries
+```{r}
+
+  library(vegan)
+    library(brms)
+  library(vegan)
+  library(ggordiplots)
+  #install.packages('ggrepel')
+  library(ggrepel) 
+  library(dplyr)
+  library(cowplot)
+  library(RColorBrewer)
+           
+```
+
+# SECTION 2. RAREFACTION CURVES
+
+## 2.1 Functions and Data 
+```{r}
+
+###COnversion Code for GGPlot
+  tidy_rarecurve <- function(x, sites) {
+    long_list <- mapply(function(x, sites) {
+      data.frame(
+        site = sites,
+        samp_names = names(x),
+        samp_size = attr(x, "Subsample"),
+        species = x)},
+      x = x, sites = sites, SIMPLIFY = FALSE)
+    do.call(rbind, long_list)
+  }
+  
+```
+
+## 2.2 All Data 
+```{r}
+######### ALL Sites
+  data<-read.csv("raredata.csv",header=TRUE)
+
+  #Plot
+    rc<-rarecurve(data,step=1,sample=32)
+    tidy_rc <- tidy_rarecurve(rc, sites = c("Cacao","San Gerardo","Maritza","Murciélago","Santa Rosa"))
+    fivesites_rare1<-tidy_rc %>% ggplot() + geom_line(aes(samp_size, species, color = site),size=1.5) + theme_classic()
+    fivesites_rare2<- fivesites_rare1 + labs(x="Sample Size",y="Species",color="Site") + scale_color_brewer(palette="Dark2") + theme(axis.text=element_text(size=15),axis.title=element_text(size=15),legend.text = element_text(size=12),legend.title = element_text(size=12))
+    fivesites_rare3<-fivesites_rare2 + scale_x_continuous(breaks = scales::pretty_breaks(n = 7))
+    fivesites_rare3
+```
+
+## 2.3 Historical Data
+```{r}
+###### Historical Sites
+      newrare<-read.csv('newrare.csv',header=T)
+      historicalcols<-brewer.pal(5,"Paired")[1:2]
+      
+    #Plot 
+      rc_newrare<-rarecurve(newrare,step=1,sample=32)
+      tidy_rc_newrare <- tidy_rarecurve(rc_newrare, sites = c("Cacao","Cacao Historical"))
+      
+      historical_rare1<-tidy_rc_newrare %>% ggplot() + geom_line(aes(samp_size, species, color = site),size=1.5) + theme_classic()
+      historical_rare2<- historical_rare1 + labs(x="Sample Size",y="Species",color="Site") + scale_color_brewer(palette="Paired") + theme(axis.text=element_text(size=15),axis.title=element_text(size=15),legend.text = element_text(size=12),legend.title = element_text(size=12))
+      historical_rare3<-historical_rare2 + scale_x_continuous(breaks = scales::pretty_breaks(n = 7))
+      historical_rare3
+```
+
+## 2.4 Combine and Plot
+
+```{r}
+#### Join 
+      rarefaction_join1<-plot_grid(fivesites_rare3,historical_rare3,nrow=2,labels="AUTO")
+        #ggsave2('Rarefaction Curves.pdf',rarefaction_join1,height=15,width=20,units="cm")
+
+
+```
+
+# SECTION 3. NMDS PLOT
+
+## 3.1 Data and Labels 
+```{r}
+nmdsdata<-read.csv('nmdsdata_new.csv',header=T)
+    head(nmdsdata)
+    
+    #Vector of Groups for Plotting 
+      oldlabs<-nmdsdata[,1]
+      newlabs<-c("Cacao","San Gerardo","Martiza","Murciélago","Santa Rosa","Cacao Historical")
+      sitegroups<-c("Wet","Wet","Intermediate","Dry","Dry","Wet")
+      
+```
+
+## 3.2 NMDS Ordinations 
+
+```{r}
+#Distance      
+  vare.dist <- vegdist(nmdsdata[,-1])
+#Ordination  
+  vare.mds <- metaMDS(vare.dist)
+#Save Data for Plotting  
+  g1<-scores(vare.mds,"sites")
+  #Text Data
+    textdat<-data.frame(x=g1[,1],y=g1[,2],label=newlabs,Group=sitegroups)
+  
+  #Plot
+    gplot1<-ggplot(textdat,aes(x=x,y=y)) + geom_point(aes(fill=Group),shape=21,size=5) + theme_bw() + labs(x="NMDS1",y="NMDS2")
+    gplot2<-gplot1 + geom_text_repel(aes(x=g1[,1],y=g1[,2],label=newlabs),size=5) + theme(legend.position="top",axis.text=element_text(size=15),legend.text = element_text(size=15),legend.title=element_text(size=15),axis.title = element_text(size=15))  
+    gplot2
+
+    #ggsave2('NMDS Forest Type.pdf',width=15,height=15,units="cm")
+    
+
+```
+
+# SECTION 4 RANK ABUNDANCE DECAY
+
+## 4.1 Data Cleaning 
+```{r}
+
+#to check if the slopes are significant 
+rankdata<-read.csv("rankan.csv",header=T)
+head(rankdata)
+
+
+    #1 is Cacao, 2 is San Gerardo, 3 is Murcielago, 4 is Santa Rosa, 5 is Maritza and, 6 is all sites
+    library(brms)
+    #rankdata$location<-as.factor(rankdata$location)
+    head(rankdata)
+    
+    ##Re-name Locations
+    sitedata<-data.frame(location=seq(6),site=c("Cacao","San Gerardo","Murciélago","Santa Rosa","Maritza","All Sites"),Habitat=c("Wet","Wet","Dry","Dry","Intermediate",NA))
+    library(dplyr)
+    rankdata2<-left_join(rankdata,sitedata,"location")
+    head(rankdata2)
+
+### Site Classification Model 
+
+    ##Reclassify     
+    rankdata_habitat<-subset(rankdata2,Habitat!="Intermediate")
+    rankdata2$habitat_short<-ifelse(rankdata2$Habitat=="Wet","Wet","Other")
+
+  ##Filter Out All Sites
+    rankdata_subset<-subset(rankdata2,location!="6")
+    nrow(rankdata);nrow(rankdata_subset)     
+```
+
+## 4.2 Plotting 
+
+```{r}
+######## Plotting 
+    g1<-ggplot(rankdata_subset,aes(x=rank,y=log10(abundance))) + geom_point(aes(fill=site),shape=21,size=5) + facet_wrap(.~site)
+    g1
+    
+    g2<-ggplot(rankdata_subset,aes(x=rank,y=(abundance))) + geom_point(aes(fill=site),shape=21,size=5) + facet_wrap(.~site)
+    g2    
+```
+
+## 4.3 Models 
+
+### 4.3.1 Full Model 
+```{r} 
+ 
+       
+  ######### FIVE SITE MODEL
+      
+        
+  ##Count Process Negative Binomial      
+        m3<-brm(abundance ~ rank*site,data=rankdata_subset,family=negbinomial(),save_pars = save_pars(all = TRUE))
+        summary(m3)
+        conditional_effects(m3)    
+        
+      #Check Model 
+        pp_check(m3)
+        
+      #R2
+        bayes_R2(m3)
+        
+```
+
+### 4.3.2 Full Model Test 
+
+```{r}
+
+#Fit Null Model 
+   m3_null<-brm(abundance ~ 1,data=rankdata_subset,family=negbinomial(),save_pars = save_pars(all = TRUE))
+
+#Use LOO to COmpare 
+    loo(m3,m3_null,moment_match = T)
+
+```
+
+## 4.4 Combined Plot 
+
+```{r}
+###############################  
+###### COMBINED RAW DATA AND MODEL PREDICTION PLOT 
+###############################        
+
+        
+      #Plot Aesthetics
+          plotopts<- theme(legend.position="top",axis.text=element_text(size=15),legend.text = element_text(size=15),legend.title=element_text(size=15),axis.title = element_text(size=15),strip.text = element_text(size=20))  
+    
+      #Raw Plot Data From Models
+        plotdata1<-conditional_effects(m3,effects='rank:site',plot=F)
+        plotdata2<-plotdata1$`rank:site`
+        
+      #Edit Site Names for Accuracy 
+        plotdata2$site<-as.character(plotdata2$site)
+        plotdata2$site[which(plotdata2$site=="Murcielago")]<-"Murciélago"
+        rankdata_subset$site[which(rankdata_subset$site=="Murcielago")]<-"Murciélago"
+        
+      #Plot Predictions
+        pred1<- ggplot() + geom_ribbon(data=plotdata2,aes(x=rank,ymax=upper__,ymin=lower__,fill=site),alpha=0.5) + facet_wrap(site~.)
+        pred2<- pred1 + guides(fill="none",color="none") + scale_fill_brewer(palette="Dark2") + geom_line(data=plotdata2,aes(x=rank,y=estimate__,color=site)) + scale_color_brewer(palette="Dark2")
+        #pred2
+        
+      ##Add On Raw Data
+        pred3<- pred2 + geom_point(data=rankdata_subset,aes(x=rank,y=abundance,fill=site),shape=21,size=3,alpha=0.7)
+        #pred3
+        
+      ##More Aesthetics
+        pred4<- pred3 + plotopts + labs(x="Rank",y="Abundance")
+        pred4
+        
+      #Save
+        ggsave2('Rank Abundance Prediction Plot.pdf',pred4,width=20,height=12,units="cm")
+        
+        
+
+
+```
